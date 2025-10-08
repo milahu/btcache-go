@@ -1,0 +1,4 @@
+[submodule "anacrolix-torrent"]
+	path = anacrolix-torrent
+	url = https://github.com/milahu/anacrolix-torrent
+	branch = remote-storage
