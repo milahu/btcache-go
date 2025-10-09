@@ -33,6 +33,6 @@ fetched from a backend server with a slow network but large storage.
 
 ## see also
 
-- https://code.google.com/archive/p/btcache/
-- https://doi.org/10.1109/ICSESS49938.2020.9237696
-  - https://sci-hub.ru/https://doi.org/10.1109/ICSESS49938.2020.9237696
+- [Core Feature: Remote Storage Backends cloud-torrent#24](https://github.com/jpillora/cloud-torrent/issues/24)
+- [btcache](https://code.google.com/archive/p/btcache/) - passively collect chunks of BitTorrent data passing by ... fill up a big storage array with all the pieces ... A second component can then connect back ... and offer ... pieces. very alpha-quality. archived project
+- [BTCache: A High Performance Concurrent Read Framework Based on Bit-Torrent Algorithm. Chao Li et al. 2020](https://doi.org/10.1109/ICSESS49938.2020.9237696) ([sci-hub.ru](https://sci-hub.ru/https://doi.org/10.1109/ICSESS49938.2020.9237696))
