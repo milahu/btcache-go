@@ -36,12 +36,20 @@ func main() {
 	cfg.DisableWebtorrent = true
 	cfg.DisableWebseeds = true
 	cfg.DisablePEX = true
+	// cfg.NoDHT aka cfg.DisableDHT
 	cfg.NoDHT = true
 	cfg.DisableIPv6 = true
-	cfg.DisableUpnp = true
+	// cfg.NoDefaultPortForwarding aka cfg.DisableUpnp
+	cfg.NoDefaultPortForwarding = true
+	// cfg.HeaderObfuscationPolicy.Preferred = false
+	// cfg.HeaderObfuscationPolicy.RequirePreferred = false
+	// cfg.DisableUTP = true // TODO remove
 
 	// Set debug logging
 	cfg.Debug = true
+	// FIXME cfg.Logger.SetLevel undefined
+	// cfg.Logger.SetLevel(log.DebugLevel)
+	// cfg.Logger.AddWriter(os.Stderr)
 
 	// Handle --bind option
 	if *bindAddr != "" {
@@ -52,6 +60,10 @@ func main() {
 		log.Printf("🌐 Binding torrent client to %s:%d", ip.String(), cfg.ListenPort)
 		cfg.ListenHost = func(string) string { return ip.String() }
 	}
+
+	// FIXME wrong format
+	// expected: handshake Handshake: extensions=0000000000100005 (ltep, fast, dht)
+	// log.Printf("our extension bits: %08x", cfg.Extensions)
 
 	client, err := torrent.NewClient(cfg)
 	if err != nil {
