@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"log"
 	"net"
@@ -12,14 +13,18 @@ import (
 )
 
 func main() {
-	if len(os.Args) != 3 {
-		fmt.Printf("Usage: %s <infohash> <peer_ip:port>\n", os.Args[0])
-		fmt.Printf("Example: %s 1C02BDB8D63F1A2D8A49B2A429A2E9F8E38E7F17 127.0.0.1:50007\n", os.Args[0])
+	bindAddr := flag.String("bind", "", "Bind to IP address or network interface (e.g. 127.0.0.1, eth0)")
+	flag.Parse()
+
+	args := flag.Args()
+	if len(args) != 2 {
+		fmt.Printf("Usage: %s [--bind <addr|iface>] <infohash> <peer_ip:port>\n", os.Args[0])
+		fmt.Printf("Example: %s --bind 127.0.0.1 1C02BDB8D63F1A2D8A49B2A429A2E9F8E38E7F17 127.0.0.1:50007\n", os.Args[0])
 		os.Exit(1)
 	}
 
-	infohash := os.Args[1]
-	peerAddr := os.Args[2]
+	infohash := args[0]
+	peerAddr := args[1]
 
 	// Configure client to ONLY use manually added peers
 	cfg := torrent.NewDefaultClientConfig()
@@ -33,19 +38,20 @@ func main() {
 	cfg.DisablePEX = true
 	cfg.NoDHT = true
 	cfg.DisableIPv6 = true
+	cfg.DisableUpnp = true
 
 	// Set debug logging
 	cfg.Debug = true
 
-	/*
-		if true {
-			// Add this to the configuration
-			cfg.Logger = verboseLogger{}
-
-			// And replace the client creation with this:
-			cfg.Dialer = &verboseDialer{}
+	// Handle --bind option
+	if *bindAddr != "" {
+		ip := net.ParseIP(*bindAddr)
+		if ip == nil {
+			log.Fatalf("--bind must be a valid IP address, got '%s'", *bindAddr)
 		}
-	*/
+		log.Printf("🌐 Binding torrent client to %s:%d", ip.String(), cfg.ListenPort)
+		cfg.ListenHost = func(string) string { return ip.String() }
+	}
 
 	client, err := torrent.NewClient(cfg)
 	if err != nil {
@@ -58,7 +64,8 @@ func main() {
 	log.Printf("Target peer: %s", peerAddr)
 
 	// Add magnet URI
-	magnet := fmt.Sprintf("magnet:?xt=urn:btih:%s", infohash)
+	// magnet := fmt.Sprintf("magnet:?xt=urn:btih:%s", infohash)
+	magnet := fmt.Sprintf("magnet:?xt=urn:btih:%s&x.pe=%s", infohash, peerAddr)
 	log.Printf("Adding magnet URI: %s", magnet)
 
 	t, err := client.AddMagnet(magnet)
@@ -91,6 +98,8 @@ func main() {
 	}
 
 	log.Printf("👥 Adding peer: %s", peerAddr)
+	// FIXME this has no effect
+	// workaround: add peer as "&x.pe=%s" to magnet URI
 	t.AddPeers([]torrent.PeerInfo{{Addr: addr}})
 
 	// Download everything

@@ -66,19 +66,60 @@ func (pc *PieceCache) LoadPiece(infohash metainfo.Hash, pieceIndex int) ([]byte,
 }
 
 func (cc *CachingClient) fetchPieceFromBackend(infohash metainfo.Hash, pieceIndex int) ([]byte, error) {
+	// Load metainfo from cache or backend
+	mi, err := fetchTorrentFile(cc.config, infohash.HexString())
+	if err != nil {
+		return nil, fmt.Errorf("failed to load metainfo: %w", err)
+	}
+	info, err := mi.UnmarshalInfo()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get info from metainfo: %w", err)
+	}
+	pieceLength := int64(info.PieceLength)
+	pieceOffset := int64(pieceIndex) * pieceLength
+
+	// Find which file(s) this piece belongs to
+	var fileIndex int
+	var fileOffset int64
+	var found bool
+	var offset int64 = 0
+	for i, f := range info.Files {
+		if pieceOffset < offset+f.Length {
+			fileIndex = i
+			fileOffset = pieceOffset - offset
+			found = true
+			break
+		}
+		offset += f.Length
+	}
+	if !found {
+		return nil, fmt.Errorf("piece offset out of range")
+	}
+	file := info.Files[fileIndex]
+	// Calculate how much to read from this file
+	readLen := pieceLength
+	if fileOffset+readLen > file.Length {
+		readLen = file.Length - fileOffset
+	}
+
+	// Build URL for the file
 	infohashStr := infohash.HexString()
+	filePath := file.Path
+	// Join path elements for URL
+	urlPath := ""
+	for _, p := range filePath {
+		urlPath = filepath.Join(urlPath, p)
+	}
+	url := fmt.Sprintf("%s/cas/btih/%s/%s", cc.config.BackendURL, infohashStr, urlPath)
+	log.Printf("fetching piece %d from %s", pieceIndex, url)
 
-	// Build URL for the piece
-	url := fmt.Sprintf("%s/cas/btih/%s/piece-%d",
-		cc.config.BackendURL,
-		infohashStr,
-		pieceIndex)
-
+	// Build HTTP range header
+	rangeHeader := fmt.Sprintf("bytes=%d-%d", fileOffset, fileOffset+readLen-1)
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return nil, err
 	}
-
+	req.Header.Set("Range", rangeHeader)
 	if cc.config.BackendUsername != "" {
 		req.SetBasicAuth(cc.config.BackendUsername, cc.config.BackendPassword)
 	}
@@ -89,7 +130,7 @@ func (cc *CachingClient) fetchPieceFromBackend(infohash metainfo.Hash, pieceInde
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
+	if resp.StatusCode != http.StatusPartialContent && resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("backend returned status: %s", resp.Status)
 	}
 
