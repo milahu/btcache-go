@@ -1,5 +1,6 @@
 #!/bin/sh
 
-set -x
+set -eux
 
-exec go build ./cmd/btcache
+go build ./cmd/btcache
+go build ./cmd/test-client
