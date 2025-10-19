@@ -13,6 +13,8 @@ require (
 	github.com/mattn/go-sqlite3 v1.14.32
 )
 
+require gopkg.in/yaml.v3 v3.0.1
+
 require (
 	github.com/RoaringBitmap/roaring v1.9.4 // indirect
 	github.com/ajwerner/btree v0.0.0-20211221152037-f427b3e689c0 // indirect
