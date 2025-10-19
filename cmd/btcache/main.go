@@ -142,6 +142,11 @@ func getTorrentClientConfig() *torrent.ClientConfig {
 		false,
 		"Disable UTP",
 	)
+	AnonymousMode := flag.Bool(
+		"AnonymousMode",
+		false,
+		"Enable anonymous mode: do not send client version to peers and use generic user-agent for HTTP trackers",
+	)
 	// TODO? config file
 	// configFile := flag.String("config", "", "Load configuration from YAML file")
 	// writeFile := flag.String("write-config", "", "Write default configuration to YAML file")
@@ -237,6 +242,10 @@ func getTorrentClientConfig() *torrent.ClientConfig {
 	// debug: use TCP only
 	if *DisableUTP {
 		cfg.DisableUTP = true
+	}
+
+	if *AnonymousMode {
+		cfg.AnonymousMode = true
 	}
 
 	// Configure default storage
