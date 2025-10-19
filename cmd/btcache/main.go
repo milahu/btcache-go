@@ -1,7 +1,5 @@
-//go:build !noboltdb && !wasm
-// +build !noboltdb,!wasm
-
 // cmd/btcache/main.go
+
 package main
 
 import (
@@ -17,43 +15,13 @@ import (
 
 	"github.com/anacrolix/torrent"
 	"github.com/anacrolix/torrent/metainfo"
+
+	// NOTE we use a fork with http storage (HttpStorageImpl)
 	"github.com/anacrolix/torrent/storage"
 )
 
-func usageAndExit() {
-	fmt.Fprintf(os.Stderr, "usage: %s /path/to/some.torrent\n", os.Args[0])
-	os.Exit(2)
-}
-
 func main() {
-	// if len(os.Args) < 2 {
-	// 	usageAndExit()
-	// }
-	// torrentFile := os.Args[1]
-
-	// // Load .torrent file
-	// f, err := os.Open(torrentFile)
-	// if err != nil {
-	// 	fmt.Fprintf(os.Stderr, "open torrent: %v\n", err)
-	// 	os.Exit(1)
-	// }
-	// defer f.Close()
-
-	// mi, err := metainfo.Load(f)
-	// if err != nil {
-	// 	fmt.Fprintf(os.Stderr, "load metainfo: %v\n", err)
-	// 	os.Exit(1)
-	// }
-	// info, err := mi.UnmarshalInfo()
-	// if err != nil {
-	// 	fmt.Fprintf(os.Stderr, "unmarshal info: %v\n", err)
-	// 	os.Exit(1)
-	// }
-
-	// // Use the canonical bytes from the .torrent file to compute infohash
-	// infoHash := mi.HashInfoBytes()
-
-	// Create normal network client
+	// Configure torrent client
 	cfg := torrent.NewDefaultClientConfig()
 	cfg.DataDir = "./cache"
 	cfg.ListenPort = 5007
@@ -66,7 +34,7 @@ func main() {
 		}
 		return ""
 	}
-	cfg.DisableIPv6 = true
+	// cfg.DisableIPv6 = true
 	cfg.Seed = true
 	// cfg.NoDHT aka cfg.DisableDHT
 	cfg.NoDHT = true
@@ -75,26 +43,22 @@ func main() {
 	cfg.DisablePEX = true
 	// cfg.NoDefaultPortForwarding aka cfg.DisableUpnp
 	cfg.NoDefaultPortForwarding = true
-	cfg.HeaderObfuscationPolicy.Preferred = false
-	// cfg.HeaderObfuscationPolicy.RequirePreferred = false
+	// cfg.HeaderObfuscationPolicy.Preferred = false
 	// cfg.PublicIp4 = "todo"
-	// Set debug logging
+	// enable debug logging
 	cfg.Debug = true
 	// never check pieces
 	cfg.PieceHashersPerTorrent = 0
-	cfg.DisableUTP = true // TODO remove
+	// cfg.DisableUTP = true // debug: use TCP only
 
-	// FIXME wrong format
-	// expected: handshake Handshake: extensions=0000000000100005 (ltep, fast, dht)
-	// log.Printf("our extension bits: %08x", cfg.Extensions)
-
-	fileStorageOpts := storage.NewFileClientOpts{
+	// Configure default storage
+	contentFileStorageOpts := storage.NewFileClientOpts{
 		ClientBaseDir: "./server-content",
 		TorrentDirMaker: func(baseDir string, info *metainfo.Info, infoHash metainfo.Hash) string {
 			return baseDir + "/" + infoHash.HexString()
 		},
 	}
-	fileStorage := storage.NewFileOpts(fileStorageOpts)
+	contentFileStorage := storage.NewFileOpts(contentFileStorageOpts)
 	httpStorageOpts := storage.HttpStorageOpts{
 		MetadataURL: "http://localhost/torrents/", // directory listing
 		// TODO? replace with MetadataFileStorageOpts
@@ -103,12 +67,15 @@ func main() {
 		PieceCacheDir:    "./server-pieces",
 		// no. duplication is bad
 		// ContentFileStorageOpts: fileStorageOpts,
-		ContentFileStorage: fileStorage,
+		ContentFileStorage: contentFileStorage,
+		// TODO? fileStorage stores files, pieceStorage stores pieces
+		// ContentPieceStorage: contentPieceStorage,
 		// TODO http authentication
 		HTTPClient: &http.Client{},
 	}
 	cfg.DefaultStorage = storage.NewHttpStorage(httpStorageOpts)
 
+	// Create torrent client
 	log.Printf("Starting torrent client at %s:%d", cfg.ListenHost("tcp4"), cfg.ListenPort)
 	client, err := torrent.NewClient(cfg)
 	if err != nil {
@@ -118,14 +85,14 @@ func main() {
 	defer client.Close()
 
 	// cfg.DefaultStorage.SetTorrentClient(client) // cycle
-	fetchAndCacheTorrents(client)
+	fetchAndLoadTorrents(client)
 
 	// keep process alive so client can operate (in real program you will run HTTP server etc.)
 	select {}
 }
 
-// Fetch .torrent files from HTTP index and load using BTCacheClient
-func fetchAndCacheTorrents(client *torrent.Client) error {
+// Fetch and load .torrent files
+func fetchAndLoadTorrents(client *torrent.Client) error {
 	// panics if DefaultStorage has wrong type
 	httpStorage := (client.GetConfig().DefaultStorage).(*storage.HttpStorageImpl)
 
@@ -142,6 +109,7 @@ func fetchAndCacheTorrents(client *torrent.Client) error {
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(resp.Body)
 
+	// Parse directory listing
 	// Parse <a href="..."> links ending with .torrent
 	re := regexp.MustCompile(`<a href="([^"]+\.torrent)"`)
 	matches := re.FindAllStringSubmatch(string(body), -1)
@@ -158,7 +126,6 @@ func fetchAndCacheTorrents(client *torrent.Client) error {
 		// Skip if already cached
 		if _, err := os.Stat(localPath); err != nil {
 			// Download and cache
-			// torrentURL := client.GetConfig().DefaultStorage.GetOpts().MetadataURL + m[1]
 			torrentURL := httpStorage.Opts.MetadataURL + m[1]
 			log.Printf("fetching %s ...", torrentURL)
 			resp, err := http.Get(torrentURL)
@@ -172,12 +139,14 @@ func fetchAndCacheTorrents(client *torrent.Client) error {
 				log.Printf("failed to read %s: %v", torrentURL, err)
 				continue
 			}
+			// write cache
 			if err := os.WriteFile(localPath, data, 0644); err != nil {
 				log.Printf("failed to save %s: %v", localPath, err)
 				continue
 			}
 			log.Printf("writing torrent to cache: %s", localPath)
 		} else {
+			// read cache
 			log.Printf("reading torrent from cache: %s", localPath)
 		}
 
@@ -193,21 +162,23 @@ func fetchAndCacheTorrents(client *torrent.Client) error {
 			continue
 		}
 
-		// Add torrent with custom storage
+		// infoHash := mi.HashInfoBytes().HexString()
+
+		// Add torrent
 		t, err := client.AddTorrent(mi)
 		if t == nil || err != nil {
 			log.Printf("failed to add torrent %s: %s", filename, err)
 			continue
 		}
 
-		log.Printf("added torrent: %s", t.Name())
+		log.Printf("adding torrent: %s", t.Name())
 
-		// Replace storage with custom httpStorage.OptsCacheClient
-		// wrapped := httpStorage.Opts.WrapStorage(t)
-		// t.SetStorage(wrapped)
-
-		// Mark all pieces complete for proxy
-		t.SetHaveAllPieces()
+		// Mark all pieces as complete
+		err = t.SetHaveAllPieces()
+		if err != nil {
+			log.Printf("failed to mark all pieces as complete for torrent %s: %v", filename, err)
+			continue
+		}
 	}
 
 	return nil
