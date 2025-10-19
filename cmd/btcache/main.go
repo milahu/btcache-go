@@ -22,6 +22,7 @@ import (
 
 	// NOTE we use a fork with http storage (HttpStorageImpl)
 	// https://github.com/milahu/anacrolix-torrent
+	// https://github.com/anacrolix/torrent/pull/1025
 	"github.com/anacrolix/torrent/storage"
 
 	"gopkg.in/yaml.v3"
